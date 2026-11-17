@@ -1,0 +1,12 @@
+import assert from 'node:assert/strict';
+import {occurrences} from '../lib/domain.ts';
+const c={start:'2026-11-01',days:[1,2,3,4,5,6],open:'08:00',close:'18:00'};
+const n=occurrences('2026-11',c);
+assert.equal(n.filter(x=>x.type==='Reel').length,2);
+assert.equal(n.filter(x=>x.type==='Divulgação').length,30);
+assert.equal(n.filter(x=>x.type==='Relatório').length,6);
+assert.equal(n.filter(x=>x.type==='Abertura').length,25);
+assert.equal(n.find(x=>x.type==='Relatório')?.date,'2026-11-15');
+assert.equal(occurrences('2026-10',c).length,0);
+assert.equal(occurrences('2026-02',{...c,start:'2026-01-01'}).filter(x=>x.type==='Reel')[1].date,'2026-02-28');
+console.log('Agenda: recorrência diária, dias úteis, relatórios de 14 dias, mês passado e fevereiro verificados.');

@@ -1,0 +1,16 @@
+import {env} from 'cloudflare:workers';
+import {getChatGPTUser} from '@/app/chatgpt-auth';
+import {defaults} from './domain';
+export const db=()=>{if(!env.DB)throw new Error('Banco indisponível');return env.DB};
+export async function member(){const user=await getChatGPTUser() || (import.meta.env.DEV ? {email:'preview@example.invalid',userId:'local-preview'} : null);if(!user)throw new Error('401');const email=user.email.toLowerCase();
+ // Private Site owner is the only person who can bootstrap the first membership.
+ const count:any=await db().prepare('SELECT COUNT(*) n FROM members').first();
+ if(!count.n)await db().prepare("INSERT OR IGNORE INTO members (email,name,role,uid,active) SELECT ?,?,'admin',?,1 WHERE NOT EXISTS (SELECT 1 FROM members)").bind(email,'Aldemar',user.userId).run();
+ const m:any=await db().prepare('SELECT * FROM members WHERE email=? AND active=1').bind(email).first();if(!m)throw new Error('403');if(m.uid&&m.uid!==user.userId)throw new Error('403');if(!m.uid)await db().prepare('UPDATE members SET uid=? WHERE email=? AND uid IS NULL').bind(user.userId,email).run();return m;}
+export function fail(e:any){const s=['401','403','409'].includes(e.message)?Number(e.message):400;return Response.json({error:s===401?'Entre com sua conta.':s===403?'Acesso não autorizado.':s===409?'Este registro foi atualizado. Recarregue e tente novamente.':e.message||'Não foi possível salvar.'},{status:s});}
+export async function config(){const r:any=await db().prepare("SELECT data FROM config WHERE id='school'").first();return r?{...defaults,...JSON.parse(r.data)}:defaults;}
+export async function log(m:any,action:string){await db().prepare('INSERT INTO audit VALUES (?,?,?,?)').bind(crypto.randomUUID(),m.email,action,new Date().toISOString()).run();}
+export const kinds=['student','task','completion','report','reel','transaction','goal','project','message'];
+export function visible(m:any,r:any){if(m.role==='admin')return true;const d=r.data;if(r.kind==='message')return d.to==='all'||d.to===m.email||r.owner===m.email;if(r.kind==='transaction')return r.owner===m.email||d.beneficiary===m.email;if(r.kind==='student')return r.owner===m.email||d.teacher===m.email;if(['goal','project','task'].includes(r.kind))return !d.assignee||d.assignee===m.email;return r.owner===m.email;}
+export function validate(kind:string,d:any){if(!d||typeof d!=='object'||Array.isArray(d))throw new Error('Dados inválidos.');if(JSON.stringify(d).length>30000)throw new Error('Texto muito longo.');if(kind!=='completion'&&!String(d.title||d.name||d.text||'').trim())throw new Error('Preencha o título ou a descrição.');if(d.url&&!/^https:\/\//i.test(d.url))throw new Error('Use um link iniciado por https://.');if(kind==='transaction'){if(!Number.isFinite(d.amount)||d.amount<=0)throw new Error('Informe um valor maior que zero.');if(!['tuition','expense','base','commission','bonus'].includes(d.type))throw new Error('Tipo inválido.');if(d.type==='tuition'&&!d.student)throw new Error('Selecione o aluno.');}
+ if(kind==='goal'&&(!Number.isInteger(d.target)||d.target<1||!Number.isFinite(d.bonus)||d.bonus<0))throw new Error('Defina a meta de alunos e a gratificação.');if(d.date&&!/^\d{4}-\d{2}-\d{2}$/.test(d.date))throw new Error('Data inválida.');if(d.month&&!/^\d{4}-\d{2}$/.test(d.month))throw new Error('Mês inválido.');}
